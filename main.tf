@@ -19,6 +19,7 @@ provider "aws" {
   region = var.region
 }
 
+# ---------------- EKS Cluster Data ----------------
 data "aws_eks_cluster" "this" {
   name = var.cluster_name
 }
@@ -41,16 +42,18 @@ provider "helm" {
   }
 }
 
-# ---------------- IRSA for ExternalDNS ----------------
-# Get OIDC issuer URL from the EKS cluster
+# ---------------- OIDC Provider ----------------
 locals {
   oidc_provider_url = replace(data.aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
 }
 
-data "aws_iam_openid_connect_provider" "oidc" {
-  url = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+resource "aws_iam_openid_connect_provider" "oidc" {
+  url             = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da0afd10df6"]
 }
 
+# ---------------- IRSA for ExternalDNS ----------------
 resource "aws_iam_role" "external_dns_irsa" {
   name = var.external_dns_irsa_role_name
 
@@ -60,7 +63,7 @@ resource "aws_iam_role" "external_dns_irsa" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.oidc.arn
+          Federated = aws_iam_openid_connect_provider.oidc.arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -82,14 +85,18 @@ resource "aws_iam_role_policy" "external_dns_policy" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["route53:ChangeResourceRecordSets", "route53:ListHostedZones", "route53:ListResourceRecordSets"]
+        Action   = [
+          "route53:ChangeResourceRecordSets",
+          "route53:ListHostedZones",
+          "route53:ListResourceRecordSets"
+        ]
         Resource = "*"
       }
     ]
   })
 }
 
-# Service Account with IRSA annotation
+# ---------------- Service Account ----------------
 resource "kubernetes_service_account" "external_dns" {
   metadata {
     name      = "external-dns"
@@ -134,5 +141,4 @@ resource "helm_release" "external_dns" {
       value = kubernetes_service_account.external_dns.metadata[0].name
     }
   ]
-  
 }
