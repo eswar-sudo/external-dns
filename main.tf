@@ -42,13 +42,10 @@ provider "helm" {
   }
 }
 
-# ---------------- OIDC Provider ----------------
-locals {
-  oidc_provider_url = replace(data.aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
-}
 
+# ---------------- OIDC Provider ----------------
 resource "aws_iam_openid_connect_provider" "oidc" {
-  url             = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+  url             = "https://${var.oidc_provider_url}"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da0afd10df6"]
 }
@@ -68,7 +65,7 @@ resource "aws_iam_role" "external_dns_irsa" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringEquals = {
-            "${local.oidc_provider_url}:sub" = "system:serviceaccount:${var.namespace}:external-dns"
+            "${var.oidc_provider_url}:sub" = "system:serviceaccount:${var.namespace}:external-dns"
           }
         }
       }
